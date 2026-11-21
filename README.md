@@ -11,7 +11,7 @@ Run it while the image links still work.
 ## What it does
 
 1. Opens the ZIP (or an already unzipped folder).
-2. Finds image URLs in HTML, CSS and CSV files: `src`, `srcset`, `poster`, `content`, `url(...)`.
+2. Finds image URLs in HTML, CSS, CSV and XML files, including HTML that is entity-escaped inside an XML export: `src`, `srcset`, `poster`, `content`, `url(...)`.
 3. Downloads each image into `images/`.
 4. Rewrites the references to the local files and writes the result to `<name>-complete/`.
 5. Lists anything it could not download in `FAILED-DOWNLOADS.txt`.
@@ -21,11 +21,12 @@ The original export is never modified.
 ## Options
 
 ```
-solo-export-fixer <export.zip | folder> [-o outDir] [--dry-run]
+solo-export-fixer <export.zip | folder> [-o outDir] [--dry-run] [--keep-links]
 ```
 
 - `-o outDir`: where to write the fixed copy.
 - `--dry-run`: list the images it would download, change nothing.
+- `--keep-links`: download the images and write `IMAGE-MAP.csv` (link, local file), but leave the links in your files as they are. Use this when another tool will import the export and needs the original links, for example a WordPress export file.
 
 Exit code is `0` when every image was saved and `2` when some failed.
 

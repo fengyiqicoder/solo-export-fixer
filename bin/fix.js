@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // solo-export-fixer: put the images back into a website export that only ships links to them.
-// Zero dependencies. Usage: node bin/fix.js <export.zip | folder> [-o outDir] [--dry-run]
+// Zero dependencies. Usage: node bin/fix.js <export.zip | folder> [-o outDir] [--dry-run] [--keep-links]
 'use strict';
 const fs = require('fs'), path = require('path'), zlib = require('zlib'), crypto = require('crypto');
 
@@ -34,16 +34,23 @@ function readDir(dir, base = dir, out = {}) {
   }
   return out;
 }
-const unescapeUrl = u => u.replace(/&amp;/g, '&');
+const unescapeUrl = u => { let p; do { p = u; u = u.replace(/&amp;/g, '&'); } while (u !== p); return u; };
+const ENT_END = /&(?:amp;)*(?:quot|apos|lt|gt|#0*3[49]|#x2[27]);/i; // an entity-escaped quote or bracket ends a URL
 function findUrls(name, text) { // returns the exact strings as they appear in the file
   const found = new Set();
-  const all = text.match(/https?:\/\/[^\s"'<>)\\,]+/g) || [];
+  const all = (text.match(/https?:\/\/[^\s"'<>)\\,]+/g) || []).map(u => u.split(ENT_END)[0]);
   const isCsv = /\.csv$/i.test(name);
   if (isCsv) { for (const u of all) found.add(u); return found; } // the image-link sheet: every URL counts
   const attr = /(?:src|srcset|poster|data-src|content)\s*=\s*["']([^"']+)["']/gi; let m;
   while ((m = attr.exec(text))) for (const part of m[1].split(/\s*,\s+/)) {
     const u = part.trim().split(/\s+/)[0];
     if (/^https?:\/\//.test(u) && (m[0].toLowerCase().startsWith('content') ? IMG_EXT.test(u.split('?')[0]) : true)) found.add(u);
+  }
+  // the same attributes inside entity-escaped HTML, as in WordPress export files (&lt;img src=&quot;...&quot;)
+  const esc = /(?:src|srcset|poster|data-src)\s*=\s*&(?:amp;)*(?:quot|apos|#0*3[49]);(.+?)&(?:amp;)*(?:quot|apos|#0*3[49]);/gi;
+  while ((m = esc.exec(text))) for (const part of m[1].split(/\s*,\s+/)) {
+    const u = part.trim().split(/\s+/)[0];
+    if (/^https?:\/\//.test(u)) found.add(u);
   }
   const css = /url\(\s*["']?(https?:\/\/[^"')]+)["']?\s*\)/gi;
   while ((m = css.exec(text))) found.add(m[1]);
@@ -63,10 +70,10 @@ async function download(url, tries = 3) {
 }
 async function main() {
   const args = process.argv.slice(2);
-  const dry = args.includes('--dry-run');
+  const dry = args.includes('--dry-run'), keep = args.includes('--keep-links');
   const oi = args.indexOf('-o');
   const input = args.find((a, i) => !a.startsWith('-') && (oi < 0 || i !== oi + 1));
-  if (!input) { console.log('Usage: solo-export-fixer <export.zip | folder> [-o outDir] [--dry-run]'); process.exit(1); }
+  if (!input) { console.log('Usage: solo-export-fixer <export.zip | folder> [-o outDir] [--dry-run] [--keep-links]'); process.exit(1); }
   const outDir = oi >= 0 ? args[oi + 1] : input.replace(/\.zip$/i, '').replace(/[\\/]+$/, '') + '-complete';
   const files = fs.statSync(input).isDirectory() ? readDir(input) : readZip(fs.readFileSync(input));
   const names = Object.keys(files);
@@ -98,7 +105,8 @@ async function main() {
   const pairs = [];
   for (const rec of seen.values()) if (rec.local) for (const raw of rec.raws) pairs.push([raw, rec.local]);
   pairs.sort((a, b) => b[0].length - a[0].length); // longest first so a URL never clobbers a longer one
-  for (const n of texts) {
+  if (keep) files['IMAGE-MAP.csv'] = Buffer.from('url,local_file\n' + [...seen.entries()].filter(e => e[1].local).map(([u, r]) => `"${u.replace(/"/g, '""')}",${r.local}`).join('\n') + '\n');
+  for (const n of keep ? [] : texts) {
     if (/\.csv$/i.test(n)) continue; // keep the original sheet as a record
     let t = files[n].toString('utf8'); const depth = n.split('/').length - 1;
     for (const [raw, local] of pairs) t = t.split(raw).join('../'.repeat(depth) + local);
@@ -111,7 +119,7 @@ async function main() {
   }
   if (failed.length) fs.writeFileSync(path.join(outDir, 'FAILED-DOWNLOADS.txt'), failed.map(f => f.join('\t')).join('\n') + '\n');
   console.log(`Saved ${ok} images, ${failed.length} failed, ${skipped} non-image links left alone.`);
-  console.log(`Complete site written to: ${outDir}`);
+  console.log(keep ? `Images and IMAGE-MAP.csv written to: ${outDir} (links in your files were not changed)` : `Complete site written to: ${outDir}`);
   if (failed.length) { console.log('See FAILED-DOWNLOADS.txt for the links that could not be fetched.'); process.exitCode = 2; }
 }
 main().then(() => process.exit(process.exitCode || 0), e => { console.error('Error: ' + e.message); process.exit(1); });

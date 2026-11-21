@@ -1,6 +1,6 @@
 {
   "name": "solo-export-fixer",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Put the images back into a website export that only ships links to them (Mozilla Solo, shuts down 2026-11-30).",
   "bin": { "solo-export-fixer": "bin/fix.js" },
   "files": ["bin", "README.md", "LICENSE"],
